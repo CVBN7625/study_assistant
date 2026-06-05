@@ -5,7 +5,10 @@ import {
   uppercaseToLowerCase,
   lowercaseToUpperCase,
   englishToChinesePunctuation,
-  chineseToEnglishPunctuation
+  chineseToEnglishPunctuation,
+  simplifiedToTraditional,
+  traditionalToSimplified,
+  replaceKangxiRadicals
 } from './conversion';
 
 describe('Conversion Processors', () => {
@@ -78,6 +81,42 @@ describe('Conversion Processors', () => {
       const input = 'test：（hello）【world】？';
       const expected = 'test: (hello) [world]?';
       expect(chineseToEnglishPunctuation.execute(input)).toBe(expected);
+    });
+  });
+
+  describe('simplifiedToTraditional', () => {
+    it('should be inactive by default', () => {
+      expect(simplifiedToTraditional.isActive).toBe(false);
+    });
+
+    it('should convert Simplified Chinese to Traditional Chinese', () => {
+      const input = '汉语';
+      const expected = '漢語';
+      expect(simplifiedToTraditional.execute(input)).toBe(expected);
+    });
+  });
+
+  describe('traditionalToSimplified', () => {
+    it('should be inactive by default', () => {
+      expect(traditionalToSimplified.isActive).toBe(false);
+    });
+
+    it('should convert Traditional Chinese to Simplified Chinese', () => {
+      const input = '漢語';
+      const expected = '汉语';
+      expect(traditionalToSimplified.execute(input)).toBe(expected);
+    });
+  });
+
+  describe('replaceKangxiRadicals', () => {
+    it('should be inactive by default', () => {
+      expect(replaceKangxiRadicals.isActive).toBe(false);
+    });
+
+    it('should replace Kangxi radicals with regular characters', () => {
+      const input = '⼀⼝⾔';
+      const expected = '一口言';
+      expect(replaceKangxiRadicals.execute(input)).toBe(expected);
     });
   });
 });

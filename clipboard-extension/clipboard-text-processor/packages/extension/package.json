@@ -9,8 +9,9 @@
   },
   "dependencies": {
     "@clipboard-processor/core": "workspace:*",
-    "vue": "^3.0.0",
-    "pinia": "^2.0.0"
+    "naive-ui": "^2.44.1",
+    "pinia": "^2.0.0",
+    "vue": "^3.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",

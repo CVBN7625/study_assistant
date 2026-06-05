@@ -53,6 +53,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true, result });
   } else if (message.type === 'GET_CONFIG') {
     sendResponse({ config: processorCore.exportConfig() });
+  } else if (message.type === 'SAVE_CONFIG') {
+    processorCore.loadConfig(message.config);
+    sendResponse({ success: true });
   } else if (message.type === 'GET_HISTORY') {
     const history = processorCore.getHistory(message.limit);
     sendResponse({ history });

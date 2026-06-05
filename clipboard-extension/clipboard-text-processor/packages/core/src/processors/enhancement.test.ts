@@ -1,13 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
   addSpaceBetweenChineseAndEnglish,
+  addSpaceBetweenLettersAndNumbers,
   addSpaceAfterPunctuation,
-  panguSpacing,
   addParagraphIndent
 } from './enhancement';
 
 describe('Enhancement Processors', () => {
   describe('addSpaceBetweenChineseAndEnglish', () => {
+    it('should be inactive by default', () => {
+      expect(addSpaceBetweenChineseAndEnglish.isActive).toBe(false);
+    });
+
     it('should add space between Chinese and English', () => {
       const input = '你好World';
       const expected = '你好 World';
@@ -27,7 +31,29 @@ describe('Enhancement Processors', () => {
     });
   });
 
+  describe('addSpaceBetweenLettersAndNumbers', () => {
+    it('should be inactive by default', () => {
+      expect(addSpaceBetweenLettersAndNumbers.isActive).toBe(false);
+    });
+
+    it('should add space between letters and numbers', () => {
+      const input = 'A1B2';
+      const expected = 'A 1 B 2';
+      expect(addSpaceBetweenLettersAndNumbers.execute(input)).toBe(expected);
+    });
+
+    it('should add space between numbers and letters', () => {
+      const input = '2024year';
+      const expected = '2024 year';
+      expect(addSpaceBetweenLettersAndNumbers.execute(input)).toBe(expected);
+    });
+  });
+
   describe('addSpaceAfterPunctuation', () => {
+    it('should be inactive by default', () => {
+      expect(addSpaceAfterPunctuation.isActive).toBe(false);
+    });
+
     it('should add space after punctuation', () => {
       const input = 'Hello,World';
       const expected = 'Hello, World';
@@ -38,14 +64,6 @@ describe('Enhancement Processors', () => {
       const input = 'Hello, World';
       const expected = 'Hello, World';
       expect(addSpaceAfterPunctuation.execute(input)).toBe(expected);
-    });
-  });
-
-  describe('panguSpacing', () => {
-    it('should add spaces between Chinese and English', () => {
-      const input = '你好World';
-      const expected = '你好 World';
-      expect(panguSpacing.execute(input)).toBe(expected);
     });
   });
 

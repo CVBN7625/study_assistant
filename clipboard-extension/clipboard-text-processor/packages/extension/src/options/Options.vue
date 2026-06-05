@@ -28,7 +28,10 @@
           <n-list-item v-for="processor in processors" :key="processor.id">
             <n-thing>
               <template #header>
-                <n-checkbox v-model:checked="processor.isActive">
+                <n-checkbox
+                  v-model:checked="processor.isActive"
+                  @update:checked="checked => onProcessorToggle(processor, checked)"
+                >
                   {{ processor.name }}
                 </n-checkbox>
               </template>
@@ -97,6 +100,25 @@ import {
 import { ProcessorConfig } from '@clipboard-processor/core';
 import { allProcessors } from '@clipboard-processor/core';
 
+type ProcessorOption = {
+  id: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+  priority: number;
+};
+
+const exclusiveProcessorGroups = [
+  {
+    ids: ['delete-duplicate-newlines', 'delete-all-newlines'],
+    preferredId: 'delete-duplicate-newlines'
+  },
+  {
+    ids: ['remove-spaces-between-chinese', 'keep-english-word-spaces', 'delete-duplicate-spaces'],
+    preferredId: 'keep-english-word-spaces'
+  }
+];
+
 const config = ref<ProcessorConfig>({
   processors: {},
   shortcuts: {
@@ -119,11 +141,12 @@ const config = ref<ProcessorConfig>({
   }
 });
 
-const processors = ref(allProcessors.map(p => ({
+const processors = ref<ProcessorOption[]>(allProcessors.map(p => ({
   id: p.id,
   name: p.name,
   description: p.description,
-  isActive: p.isActive
+  isActive: p.isActive,
+  priority: p.priority
 })));
 
 const themeOptions = [
@@ -151,10 +174,12 @@ async function loadConfig() {
   const response = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
   if (response.config) {
     config.value = response.config;
+    applyConfigToProcessors();
   }
 }
 
 function saveConfig() {
+  syncProcessorConfig();
   chrome.runtime.sendMessage({
     type: 'SAVE_CONFIG',
     config: config.value
@@ -186,7 +211,66 @@ function resetConfig() {
         floatingMenuEnabled: true
       }
     };
+    processors.value = allProcessors.map(p => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      isActive: p.isActive,
+      priority: p.priority
+    }));
+    normalizeExclusiveProcessors();
   }
+}
+
+function applyConfigToProcessors() {
+  processors.value.forEach(processor => {
+    const saved = config.value.processors[processor.id];
+    if (saved) {
+      processor.isActive = saved.isActive;
+      processor.priority = saved.priority;
+    }
+  });
+  normalizeExclusiveProcessors();
+}
+
+function syncProcessorConfig() {
+  config.value.processors = processors.value.reduce<ProcessorConfig['processors']>((processorConfig, processor) => {
+    processorConfig[processor.id] = {
+      isActive: processor.isActive,
+      priority: processor.priority
+    };
+    return processorConfig;
+  }, {});
+}
+
+function normalizeExclusiveProcessors() {
+  exclusiveProcessorGroups.forEach(group => {
+    const activeProcessors = processors.value.filter(processor =>
+      group.ids.includes(processor.id) && processor.isActive
+    );
+    if (activeProcessors.length <= 1) return;
+
+    const preferredActiveProcessor = activeProcessors.find(processor => processor.id === group.preferredId);
+    const processorIdToKeep = preferredActiveProcessor?.id ?? activeProcessors[0].id;
+    processors.value.forEach(processor => {
+      if (group.ids.includes(processor.id) && processor.id !== processorIdToKeep) {
+        processor.isActive = false;
+      }
+    });
+  });
+}
+
+function onProcessorToggle(processor: ProcessorOption, checked: boolean) {
+  processor.isActive = checked;
+
+  const exclusiveGroup = exclusiveProcessorGroups.find(group => group.ids.includes(processor.id));
+  if (!checked || !exclusiveGroup) return;
+
+  processors.value.forEach(otherProcessor => {
+    if (exclusiveGroup.ids.includes(otherProcessor.id) && otherProcessor.id !== processor.id) {
+      otherProcessor.isActive = false;
+    }
+  });
 }
 
 function exportConfig() {

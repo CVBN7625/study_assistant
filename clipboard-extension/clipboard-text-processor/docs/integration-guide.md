@@ -243,17 +243,24 @@ Authorization: Bearer YOUR_API_KEY
   "data": [
     {
       "id": "delete-duplicate-newlines",
-      "name": "删除重复换行",
-      "description": "将连续的多个换行符合并为单个换行",
+      "name": "仅保留段落换行",
+      "description": "删除多余换行，仅保留段落结尾后的换行",
       "category": "cleanup",
       "isActive": true
     },
     {
-      "id": "full-width-to-half-width",
-      "name": "全角转半角",
-      "description": "将全角字符转换为半角字符",
-      "category": "conversion",
+      "id": "keep-english-word-spaces",
+      "name": "仅保留英文单词间空格",
+      "description": "删除非英文单词之间的空格，并将英文单词间连续空格合并为单个空格",
+      "category": "cleanup",
       "isActive": true
+    },
+    {
+      "id": "traditional-to-simplified",
+      "name": "繁体转简体",
+      "description": "将繁体中文转换为简体中文",
+      "category": "conversion",
+      "isActive": false
     }
   ]
 }

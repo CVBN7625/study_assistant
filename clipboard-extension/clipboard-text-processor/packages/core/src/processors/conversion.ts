@@ -1,4 +1,5 @@
 import { TextProcessor } from '../types';
+import OpenCC from 'opencc-js';
 
 // 全角转半角
 export const fullWidthToHalfWidth: TextProcessor = {
@@ -104,7 +105,9 @@ export const englishToChinesePunctuation: TextProcessor = {
     for (const [eng, chn] of Object.entries(punctuationMap)) {
       result = result.replace(new RegExp('\\' + eng, 'g'), chn);
     }
-    return result;
+    return result
+      .replace(/([，。！？；：])\s+/g, '$1')
+      .replace(/\s+([（【])/g, '$1');
   }
 };
 
@@ -134,7 +137,50 @@ export const chineseToEnglishPunctuation: TextProcessor = {
     for (const [chn, eng] of Object.entries(punctuationMap)) {
       result = result.replace(new RegExp(chn, 'g'), eng);
     }
-    return result;
+    return result
+      .replace(/([,?:;])(?=\S)/g, '$1 ')
+      .replace(/([)\]])(?=[A-Za-z0-9([])/g, '$1 ');
+  }
+};
+
+// 简体转繁体
+export const simplifiedToTraditional: TextProcessor = {
+  id: 'simplified-to-traditional',
+  name: '简体转繁体',
+  description: '将简体中文转换为繁体中文',
+  category: 'conversion',
+  isActive: false,
+  priority: 7,
+  execute: (text: string) => {
+    const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
+    return converter(text);
+  }
+};
+
+// 繁体转简体
+export const traditionalToSimplified: TextProcessor = {
+  id: 'traditional-to-simplified',
+  name: '繁体转简体',
+  description: '将繁体中文转换为简体中文',
+  category: 'conversion',
+  isActive: false,
+  priority: 8,
+  execute: (text: string) => {
+    const converter = OpenCC.Converter({ from: 'tw', to: 'cn' });
+    return converter(text);
+  }
+};
+
+// 康熙部首替换
+export const replaceKangxiRadicals: TextProcessor = {
+  id: 'replace-kangxi-radicals',
+  name: '康熙部首替换',
+  description: '将康熙部首字符替换为对应的常规汉字部件',
+  category: 'conversion',
+  isActive: false,
+  priority: 9,
+  execute: (text: string) => {
+    return text.replace(/[\u2F00-\u2FD5]/g, char => char.normalize('NFKC'));
   }
 };
 
@@ -145,5 +191,8 @@ export const conversionProcessors: TextProcessor[] = [
   uppercaseToLowerCase,
   lowercaseToUpperCase,
   englishToChinesePunctuation,
-  chineseToEnglishPunctuation
+  chineseToEnglishPunctuation,
+  simplifiedToTraditional,
+  traditionalToSimplified,
+  replaceKangxiRadicals
 ];
