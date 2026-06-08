@@ -10,7 +10,14 @@ export default defineConfig({
     }
   },
   server: {
-    port: 3001
+    port: 3001,
+    proxy: {
+      '/api/baidu-translate': {
+        target: 'https://fanyi-api.baidu.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/baidu-translate/, '/api/trans/vip/translate')
+      }
+    }
   },
   build: {
     outDir: 'dist'

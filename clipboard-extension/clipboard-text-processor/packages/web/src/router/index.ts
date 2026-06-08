@@ -5,8 +5,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'Home',
-      component: () => import('@/views/Home.vue')
+      redirect: '/processor'
     },
     {
       path: '/processor',
@@ -27,6 +26,11 @@ const router = createRouter({
       path: '/custom-rules',
       name: 'CustomRules',
       component: () => import('@/views/CustomRules.vue')
+    },
+    {
+      path: '/translator',
+      name: 'Translator',
+      component: () => import('@/views/Translator.vue')
     }
   ]
 });
