@@ -8,6 +8,13 @@ export interface ProcessingContext {
   source: 'clipboard' | 'selection' | 'manual';
   language?: string;
   customRules?: CustomRule[];
+  translationConfig?: ProcessorConfig['translation'];
+  translateText?: (
+    text: string,
+    from: string,
+    to: string,
+    translationConfig: ProcessorConfig['translation']
+  ) => Promise<string>;
 }
 
 // 自定义规则
@@ -62,12 +69,35 @@ export interface ProcessorConfig {
   translation: {
     defaultEngine: 'baidu' | 'google' | 'deepl';
     apiKeys: {
-      baidu?: { appId: string; secretKey: string };
+      baidu?: {
+        appId: string;
+        secretKey: string;
+        apiType?: 'general' | 'large-model' | 'domain' | 'image';
+        domain?: string;
+        largeModelApiKey?: string;
+        largeModelEndpoint?: string;
+        largeModelModel?: string;
+        largeModelAuthMode?: 'api-key' | 'sign';
+        largeModelModelType?: 'llm' | 'nmt';
+        largeModelReference?: string;
+        largeModelNeedIntervene?: boolean;
+        largeModelTagHandling?: boolean;
+        largeModelIgnoreTags?: string;
+        largeModelRequestMode?: 'baidu-translate' | 'openai-compatible';
+        quotaBaseline?: number;
+        imageCuid?: string;
+        imageMac?: string;
+        imageEndpoint?: string;
+        imageQuotaBaseline?: number;
+      };
       google?: { apiKey: string };
       deepl?: { apiKey: string };
     };
     defaultSourceLang: string;
     defaultTargetLang: string;
+    autoTranslate?: boolean;
+    cacheEnabled?: boolean;
+    quotaBaseline?: number;
   };
   ui: {
     theme: 'light' | 'dark' | 'auto';
@@ -98,6 +128,7 @@ export interface TextProcessorCoreInterface {
   registerProcessor(processor: TextProcessor): void;
   unregisterProcessor(processorId: string): void;
   process(text: string, options?: ProcessingOptions): ProcessingResult;
+  processAsync(text: string, options?: ProcessingOptions): Promise<ProcessingResult>;
   processWithChain(text: string, processorIds: string[]): ProcessingResult;
   getProcessor(id: string): TextProcessor | undefined;
   getProcessorsByCategory(category: ProcessorCategory): TextProcessor[];

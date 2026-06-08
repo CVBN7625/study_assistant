@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Clipboard Text Processor",
   "version": "1.0.0",
-  "description": "强大的文本处理工具，自动清理和转换剪切板文字",
+  "description": "面向文本清理、转换与翻译的浏览器插件",
   "permissions": [
     "activeTab",
     "clipboardRead",
@@ -11,7 +11,10 @@
     "storage",
     "notifications"
   ],
-  "host_permissions": ["<all_urls>"],
+  "host_permissions": [
+    "https://fanyi-api.baidu.com/*",
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js"
   },

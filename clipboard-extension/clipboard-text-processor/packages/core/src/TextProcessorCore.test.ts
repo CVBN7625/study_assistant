@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TextProcessorCore } from '../TextProcessorCore';
-import { TextProcessor } from '../types';
+import { TextProcessorCore } from './TextProcessorCore';
+import { TextProcessor } from './types';
 
 describe('TextProcessorCore', () => {
   let core: TextProcessorCore;
@@ -153,6 +153,26 @@ describe('TextProcessorCore', () => {
       expect(result.text).toBe('HELLO');
       expect(result.processorsUsed).toContain('processor-1');
       expect(result.processorsUsed).not.toContain('processor-2');
+    });
+  });
+
+  describe('processAsync', () => {
+    it('should process text with async processors', async () => {
+      const processor: TextProcessor = {
+        id: 'async-processor',
+        name: '异步处理器',
+        description: '测试用异步处理器',
+        category: 'translation',
+        isActive: true,
+        priority: 1,
+        execute: async (text: string) => `${text} translated`
+      };
+
+      core.registerProcessor(processor);
+      const result = await core.processAsync('hello');
+
+      expect(result.text).toBe('hello translated');
+      expect(result.processorsUsed).toContain('async-processor');
     });
   });
 

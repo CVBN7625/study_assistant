@@ -31,6 +31,11 @@ const router = createRouter({
       path: '/translator',
       name: 'Translator',
       component: () => import('@/views/Translator.vue')
+    },
+    {
+      path: '/image-translator',
+      name: 'ImageTranslator',
+      component: () => import('@/views/ImageTranslator.vue')
     }
   ]
 });

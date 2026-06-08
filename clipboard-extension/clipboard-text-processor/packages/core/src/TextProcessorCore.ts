@@ -76,6 +76,34 @@ export class TextProcessorCore implements TextProcessorCoreInterface {
     };
   }
 
+  async processAsync(text: string, options?: ProcessingOptions): Promise<ProcessingResult> {
+    const startTime = performance.now();
+    const originalText = text;
+
+    const processorsToUse = this.getProcessorsToUse(options?.processors);
+    const sortedProcessors = processorsToUse.sort((a, b) => a.priority - b.priority);
+    const processorsUsed: string[] = [];
+    let processedText = text;
+
+    for (const processor of sortedProcessors) {
+      try {
+        processedText = await processor.execute(processedText, options?.context);
+        processorsUsed.push(processor.id);
+      } catch (error) {
+        console.error(`Processor ${processor.id} failed:`, error);
+      }
+    }
+
+    const processingTime = performance.now() - startTime;
+
+    return {
+      text: processedText,
+      originalText,
+      processorsUsed,
+      processingTime
+    };
+  }
+
   // 链式处理
   processWithChain(text: string, processorIds: string[]): ProcessingResult {
     const startTime = performance.now();
@@ -163,7 +191,7 @@ export class TextProcessorCore implements TextProcessorCoreInterface {
     if (processorIds && processorIds.length > 0) {
       return processorIds
         .map(id => this.processors.get(id))
-        .filter((p): p is TextProcessor => p !== undefined && p.isActive);
+        .filter((p): p is TextProcessor => p !== undefined);
     }
 
     return Array.from(this.processors.values()).filter(p => p.isActive);

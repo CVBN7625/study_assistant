@@ -53,7 +53,7 @@
           <template #footer>
             <n-space justify="space-between">
               <n-text depth="3">字数: {{ outputText.length }}</n-text>
-              <n-button size="small" @click="copyResult">复制</n-button>
+              <n-button size="small" @click="handleCopyResult">复制</n-button>
             </n-space>
           </template>
         </n-card>
@@ -77,6 +77,9 @@
           <n-text v-else depth="3">
             {{ statusMessage }}
           </n-text>
+          <n-tag v-if="lastResultFromCache" size="small" type="success">
+            缓存命中
+          </n-tag>
         </n-space>
 
         <n-space align="center">
@@ -153,7 +156,23 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue';
-import { useMessage } from 'naive-ui';
+import {
+  NAlert,
+  NButton,
+  NCard,
+  NCollapse,
+  NCollapseItem,
+  NGi,
+  NGrid,
+  NInput,
+  NSelect,
+  NSpace,
+  NSpin,
+  NSwitch,
+  NTag,
+  NText,
+  useMessage
+} from 'naive-ui';
 import { useTranslator } from '../composables/useTranslator';
 import { LANGUAGES } from '../services/translation-service';
 
@@ -167,6 +186,7 @@ const {
   targetLang,
   isTranslating,
   errorMsg,
+  lastResultFromCache,
   config,
   history,
   statusMessage,

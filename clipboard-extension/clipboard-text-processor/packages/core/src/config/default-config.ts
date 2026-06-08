@@ -30,7 +30,10 @@ export const defaultConfig: ProcessorConfig = {
     defaultEngine: 'baidu',
     apiKeys: {},
     defaultSourceLang: 'auto',
-    defaultTargetLang: 'zh'
+    defaultTargetLang: 'zh',
+    autoTranslate: true,
+    cacheEnabled: true,
+    quotaBaseline: 0
   },
   ui: {
     theme: 'auto',

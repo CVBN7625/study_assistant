@@ -1,341 +1,544 @@
 <template>
   <div class="popup-container">
     <header class="popup-header">
-      <h1>📋 文本处理器</h1>
-      <button @click="openSettings" class="settings-btn">⚙️</button>
+      <h1>文本处理器</h1>
+      <button class="icon-btn" title="设置" @click="openSettings">设置</button>
     </header>
 
-    <div class="quick-actions">
-      <h2>快速操作</h2>
+    <section class="section">
+      <div class="section-title">文本</div>
+      <textarea
+        v-model="inputText"
+        placeholder="粘贴或输入要处理的文本"
+        rows="5"
+      />
+      <div class="toolbar">
+        <button class="btn primary" :disabled="isBusy || !inputText.trim()" @click="processInput">
+          处理
+        </button>
+        <button class="btn" :disabled="isBusy || !inputText.trim()" @click="translateInput">
+          翻译
+        </button>
+        <button class="btn" :disabled="isBusy" @click="pasteFromClipboard">
+          粘贴
+        </button>
+        <button class="btn" @click="clearInput">
+          清空
+        </button>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">快速处理</div>
       <div class="action-grid">
         <button
           v-for="action in quickActions"
           :key="action.id"
-          @click="executeQuickAction(action)"
           class="action-btn"
+          :disabled="isBusy || !inputText.trim()"
+          @click="executeQuickAction(action)"
         >
-          <span class="action-icon">{{ action.icon }}</span>
-          <span class="action-label">{{ action.label }}</span>
+          {{ action.label }}
         </button>
       </div>
-    </div>
+    </section>
 
-    <div class="clipboard-section">
-      <h2>剪切板处理</h2>
-      <textarea
-        v-model="clipboardText"
-        placeholder="粘贴文字到这里处理..."
-        rows="4"
-      ></textarea>
-      <div class="clipboard-actions">
-        <button @click="pasteAndProcess" class="btn btn-primary">
-          📋 粘贴并处理
-        </button>
-        <button @click="clearClipboard" class="btn btn-secondary">
-          🗑️ 清空
-        </button>
+    <section class="section">
+      <div class="section-title">翻译设置</div>
+      <div class="lang-row">
+        <select v-model="sourceLang">
+          <option v-for="lang in sourceLanguageOptions" :key="lang.value" :value="lang.value">
+            {{ lang.label }}
+          </option>
+        </select>
+        <button class="swap-btn" title="交换语言" @click="swapLanguages">⇄</button>
+        <select v-model="targetLang">
+          <option v-for="lang in targetLanguageOptions" :key="lang.value" :value="lang.value">
+            {{ lang.label }}
+          </option>
+        </select>
       </div>
-    </div>
+      <div class="hint">
+        当前 API：{{ currentApiTypeLabel }}
+      </div>
+    </section>
 
-    <div class="result-section" v-if="processedText">
-      <h2>处理结果</h2>
-      <div class="result-content">
-        <pre>{{ processedText }}</pre>
-      </div>
-      <div class="result-actions">
-        <button @click="copyResult" class="btn btn-success">
-          ✅ 复制结果
-        </button>
-      </div>
-    </div>
+    <section class="section">
+      <div class="section-title">图片翻译</div>
+      <input type="file" accept="image/*" @change="onImageSelected" />
+      <button class="btn" :disabled="isBusy || !imageDataUrl" @click="translateSelectedImage">
+        翻译图片
+      </button>
+      <div v-if="imageFileName" class="hint">{{ imageFileName }}</div>
+    </section>
 
-    <div class="history-section">
-      <h2>最近处理</h2>
-      <div class="history-list">
-        <div
-          v-for="item in recentHistory"
-          :key="item.id"
-          class="history-item"
-          @click="reuseHistoryItem(item)"
-        >
-          <div class="history-preview">{{ item.preview }}</div>
-          <div class="history-time">{{ formatTime(item.timestamp) }}</div>
-        </div>
+    <section v-if="statusMessage || errorMessage" class="status-section">
+      <div :class="['status', errorMessage ? 'error' : '']">
+        {{ errorMessage || statusMessage }}
       </div>
-    </div>
+    </section>
+
+    <section v-if="resultText" class="section">
+      <div class="section-title">结果</div>
+      <pre class="result-content">{{ resultText }}</pre>
+      <button class="btn success" @click="copyResult">复制结果</button>
+    </section>
+
+    <section class="section">
+      <div class="section-title">最近记录</div>
+      <div v-if="recentHistory.length === 0" class="empty">暂无记录</div>
+      <button
+        v-for="item in recentHistory"
+        :key="item.id"
+        class="history-item"
+        @click="reuseHistoryItem(item)"
+      >
+        <span>{{ item.preview }}</span>
+        <small>{{ formatTime(item.timestamp) }}</small>
+      </button>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 
-const clipboardText = ref('');
-const processedText = ref('');
-const recentHistory = ref<any[]>([]);
+type QuickAction = {
+  id: string;
+  label: string;
+  processors: string[];
+};
 
-const quickActions = [
-  { id: 'clean-all', icon: '🧹', label: '一键清理' },
-  { id: 'full-to-half', icon: '↔️', label: '全角转半角' },
-  { id: 'remove-refs', icon: '📚', label: '删除引用' },
-  { id: 'add-space', icon: '␣', label: '中英加空格' }
+type HistoryPreview = {
+  id: string;
+  preview: string;
+  timestamp: number;
+  text: string;
+};
+
+const inputText = ref('');
+const resultText = ref('');
+const statusMessage = ref('');
+const errorMessage = ref('');
+const isBusy = ref(false);
+const recentHistory = ref<HistoryPreview[]>([]);
+const sourceLang = ref('auto');
+const targetLang = ref('zh');
+const currentApiType = ref('general');
+const imageDataUrl = ref('');
+const imageFileName = ref('');
+
+const languageOptions = [
+  { label: '检测语言', value: 'auto' },
+  { label: '中文', value: 'zh' },
+  { label: '英语', value: 'en' },
+  { label: '日语', value: 'jp' },
+  { label: '韩语', value: 'kor' },
+  { label: '法语', value: 'fra' },
+  { label: '德语', value: 'de' },
+  { label: '俄语', value: 'ru' },
+  { label: '繁体中文', value: 'cht' },
+  { label: '西班牙语', value: 'spa' },
+  { label: '葡萄牙语', value: 'pt' },
+  { label: '意大利语', value: 'it' },
+  { label: '越南语', value: 'vie' },
+  { label: '泰语', value: 'th' }
 ];
 
-onMounted(() => {
-  loadHistory();
+const apiTypeLabels: Record<string, string> = {
+  general: '通用文本翻译',
+  'large-model': '大模型文本翻译',
+  domain: '领域文本翻译',
+  image: '图片翻译'
+};
+
+const sourceLanguageOptions = computed(() => languageOptions);
+const targetLanguageOptions = computed(() => languageOptions.filter(option => option.value !== 'auto'));
+const currentApiTypeLabel = computed(() => apiTypeLabels[currentApiType.value] || currentApiType.value);
+
+const quickActions: QuickAction[] = [
+  {
+    id: 'clean-all',
+    label: '一键清理',
+    processors: [
+      'delete-duplicate-newlines',
+      'keep-english-word-spaces',
+      'delete-reference-badges',
+      'delete-footnotes',
+      'full-width-to-half-width'
+    ]
+  },
+  {
+    id: 'full-to-half',
+    label: '全角转半角',
+    processors: ['full-width-to-half-width']
+  },
+  {
+    id: 'remove-refs',
+    label: '删除引用',
+    processors: ['delete-reference-badges', 'delete-footnotes']
+  },
+  {
+    id: 'add-space',
+    label: '中英加空格',
+    processors: ['add-space-between-chinese-and-english']
+  }
+];
+
+onMounted(async () => {
+  await loadConfig();
+  await loadHistory();
 });
 
-async function pasteAndProcess() {
-  try {
-    const text = await navigator.clipboard.readText();
-    clipboardText.value = text;
-    await processText(text);
-  } catch (err) {
-    console.error('读取剪切板失败:', err);
-  }
-}
+async function loadConfig() {
+  const response = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
+  const translation = response?.config?.translation;
 
-async function processText(text: string) {
-  const response = await chrome.runtime.sendMessage({
-    type: 'PROCESS_TEXT',
-    text,
-    options: { category: 'all' }
-  });
-
-  if (response.success) {
-    processedText.value = response.result.text;
-    addToHistory(text, response.result.text);
+  if (!translation) {
+    return;
   }
-}
 
-async function copyResult() {
-  try {
-    await navigator.clipboard.writeText(processedText.value);
-    showNotification('已复制到剪切板');
-  } catch (err) {
-    console.error('复制失败:', err);
-  }
+  sourceLang.value = translation.defaultSourceLang || 'auto';
+  targetLang.value = translation.defaultTargetLang === 'auto' ? 'zh' : translation.defaultTargetLang || 'zh';
+  currentApiType.value = translation.apiKeys?.baidu?.apiType || 'general';
 }
 
 async function loadHistory() {
   const response = await chrome.runtime.sendMessage({
     type: 'GET_HISTORY',
-    limit: 5
+    limit: 6
   });
 
-  if (response.history) {
+  if (response?.history) {
     recentHistory.value = response.history.map((entry: any) => ({
       id: entry.id,
-      preview: entry.processedText.substring(0, 50) + '...',
-      timestamp: entry.timestamp
+      preview: createPreview(entry.processedText),
+      timestamp: entry.timestamp,
+      text: entry.processedText
     }));
   }
 }
 
-function addToHistory(original: string, processed: string) {
-  recentHistory.value.unshift({
-    id: Date.now().toString(),
-    preview: processed.substring(0, 50) + '...',
-    timestamp: Date.now()
-  });
+async function processInput() {
+  await runTask('正在处理...', async () => {
+    const response = await chrome.runtime.sendMessage({
+      type: 'PROCESS_TEXT',
+      text: inputText.value,
+      options: {
+        context: { source: 'manual' }
+      }
+    });
 
-  if (recentHistory.value.length > 5) {
-    recentHistory.value.pop();
-  }
+    assertResponse(response);
+    resultText.value = response.result.text;
+    statusMessage.value = `处理完成，使用 ${response.result.processorsUsed.length} 个处理器`;
+  });
 }
 
-function reuseHistoryItem(item: any) {
-  clipboardText.value = item.preview;
-  processText(item.preview);
+async function executeQuickAction(action: QuickAction) {
+  await runTask('正在处理...', async () => {
+    const response = await chrome.runtime.sendMessage({
+      type: 'PROCESS_TEXT',
+      text: inputText.value,
+      options: {
+        processors: action.processors,
+        context: { source: 'manual' }
+      }
+    });
+
+    assertResponse(response);
+    resultText.value = response.result.text;
+    statusMessage.value = `${action.label}完成`;
+  });
+}
+
+async function translateInput() {
+  await runTask('正在翻译...', async () => {
+    const response = await chrome.runtime.sendMessage({
+      type: 'TRANSLATE_TEXT',
+      text: inputText.value,
+      from: sourceLang.value,
+      to: targetLang.value
+    });
+
+    assertResponse(response);
+    resultText.value = response.result.text;
+    statusMessage.value = response.result.cached ? '翻译完成，来自缓存' : '翻译完成';
+  });
+}
+
+async function pasteFromClipboard() {
+  await runTask('正在读取剪切板...', async () => {
+    inputText.value = await navigator.clipboard.readText();
+    statusMessage.value = '已粘贴剪切板文本';
+  });
+}
+
+function clearInput() {
+  inputText.value = '';
+  resultText.value = '';
+  statusMessage.value = '';
+  errorMessage.value = '';
+}
+
+function swapLanguages() {
+  if (sourceLang.value === 'auto') {
+    errorMessage.value = '检测语言不能交换到目标语言';
+    return;
+  }
+
+  const previousSource = sourceLang.value;
+  sourceLang.value = targetLang.value;
+  targetLang.value = previousSource;
+
+  const previousText = inputText.value;
+  inputText.value = resultText.value;
+  resultText.value = previousText;
+}
+
+async function onImageSelected(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file) {
+    imageDataUrl.value = '';
+    imageFileName.value = '';
+    return;
+  }
+
+  imageFileName.value = file.name;
+  imageDataUrl.value = await fileToDataUrl(file);
+}
+
+async function translateSelectedImage() {
+  await runTask('正在翻译图片...', async () => {
+    const response = await chrome.runtime.sendMessage({
+      type: 'TRANSLATE_IMAGE',
+      dataUrl: imageDataUrl.value,
+      from: sourceLang.value,
+      to: targetLang.value
+    });
+
+    assertResponse(response);
+    resultText.value = response.result.translatedText || response.result.imageUrl || '';
+    statusMessage.value = '图片翻译完成';
+  });
+}
+
+async function copyResult() {
+  await navigator.clipboard.writeText(resultText.value);
+  statusMessage.value = '结果已复制';
+}
+
+function reuseHistoryItem(item: HistoryPreview) {
+  inputText.value = item.text;
 }
 
 function formatTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString('zh-CN');
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
 function openSettings() {
   chrome.runtime.openOptionsPage();
 }
 
-function showNotification(message: string) {
-  // 简单的通知显示
-  alert(message);
+async function runTask(loadingMessage: string, task: () => Promise<void>) {
+  isBusy.value = true;
+  statusMessage.value = loadingMessage;
+  errorMessage.value = '';
+
+  try {
+    await task();
+    await loadHistory();
+  } catch (error: any) {
+    errorMessage.value = error.message || '操作失败';
+  } finally {
+    isBusy.value = false;
+  }
+}
+
+function assertResponse(response: any) {
+  if (!response?.success) {
+    throw new Error(response?.error || '后台处理失败');
+  }
+}
+
+function createPreview(text: string): string {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  return normalized.length > 42 ? `${normalized.slice(0, 42)}...` : normalized;
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('读取图片失败'));
+    reader.readAsDataURL(file);
+  });
 }
 </script>
 
 <style scoped>
 .popup-container {
-  width: 360px;
-  padding: 16px;
+  width: 380px;
+  padding: 14px;
+  box-sizing: border-box;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #1f2933;
 }
 
 .popup-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
 
 .popup-header h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
+  line-height: 1.2;
 }
 
-.settings-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
+.icon-btn,
+.btn,
+.action-btn,
+.swap-btn,
+.history-item {
+  border: 1px solid #cfd7e3;
+  background: #fff;
+  color: #1f2933;
   cursor: pointer;
 }
 
-.quick-actions {
-  margin-bottom: 16px;
+.icon-btn {
+  padding: 5px 8px;
+  border-radius: 6px;
 }
 
-.quick-actions h2 {
-  font-size: 14px;
-  margin: 0 0 8px 0;
-  color: #666;
+.section {
+  margin-top: 12px;
 }
 
-.action-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-
-.action-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 12px;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  background: white;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.action-btn:hover {
-  background: #f5f5f5;
-  border-color: #007bff;
-}
-
-.action-icon {
-  font-size: 24px;
-  margin-bottom: 4px;
-}
-
-.action-label {
-  font-size: 12px;
-}
-
-.clipboard-section {
-  margin-bottom: 16px;
-}
-
-.clipboard-section h2 {
-  font-size: 14px;
-  margin: 0 0 8px 0;
-  color: #666;
+.section-title {
+  margin-bottom: 6px;
+  color: #52606d;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 textarea {
   width: 100%;
+  box-sizing: border-box;
   padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  border: 1px solid #cfd7e3;
+  border-radius: 6px;
   resize: vertical;
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.clipboard-actions {
+.toolbar,
+.lang-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-top: 8px;
 }
 
-.btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
+.btn,
+.swap-btn {
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
 }
 
-.btn-primary {
-  background: #007bff;
-  color: white;
+.btn.primary {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  color: #fff;
 }
 
-.btn-secondary {
-  background: #6c757d;
-  color: white;
+.btn.success {
+  border-color: #16803c;
+  background: #16803c;
+  color: #fff;
 }
 
-.btn-success {
-  background: #28a745;
-  color: white;
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
-.result-section {
-  margin-bottom: 16px;
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
-.result-section h2 {
-  font-size: 14px;
-  margin: 0 0 8px 0;
-  color: #666;
+.action-btn {
+  min-height: 34px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.lang-row select {
+  flex: 1;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid #cfd7e3;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.hint,
+.empty {
+  margin-top: 6px;
+  color: #7b8794;
+  font-size: 12px;
+}
+
+.status-section {
+  margin-top: 10px;
+}
+
+.status {
+  padding: 8px;
+  border-radius: 6px;
+  background: #eef4ff;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+.status.error {
+  background: #fff1f2;
+  color: #be123c;
 }
 
 .result-content {
-  background: #f5f5f5;
-  padding: 12px;
-  border-radius: 4px;
-  margin-bottom: 8px;
-}
-
-.result-content pre {
-  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 9px;
+  border-radius: 6px;
+  background: #f6f8fb;
   white-space: pre-wrap;
-  word-break: break-all;
-  font-size: 14px;
-}
-
-.result-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.history-section h2 {
-  font-size: 14px;
-  margin: 0 0 8px 0;
-  color: #666;
-}
-
-.history-list {
-  max-height: 200px;
-  overflow-y: auto;
+  word-break: break-word;
+  font-size: 13px;
 }
 
 .history-item {
-  padding: 8px;
-  border-bottom: 1px solid #eee;
-  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  margin-bottom: 5px;
+  padding: 7px;
+  border-radius: 6px;
+  text-align: left;
 }
 
-.history-item:hover {
-  background: #f5f5f5;
-}
-
-.history-preview {
-  font-size: 12px;
-  color: #333;
-  margin-bottom: 4px;
-}
-
-.history-time {
-  font-size: 10px;
-  color: #999;
+.history-item small {
+  color: #7b8794;
 }
 </style>

@@ -23,10 +23,96 @@ export const LANGUAGES = [
 
 export type LanguageCode = typeof LANGUAGES[number]['code'];
 
+export type TranslationApiType = 'general' | 'large-model' | 'domain' | 'image';
+
+export interface TranslationApiOption {
+  value: TranslationApiType;
+  label: string;
+  freeLimit: number;
+  unit: 'character' | 'request';
+  implemented: boolean;
+  description: string;
+}
+
+export interface FieldDomainOption {
+  value: string;
+  label: string;
+  directions: string;
+}
+
+export const TRANSLATION_API_OPTIONS: TranslationApiOption[] = [
+  {
+    value: 'general',
+    label: '通用文本翻译 API',
+    freeLimit: 1_000_000,
+    unit: 'character',
+    implemented: true,
+    description: '当前已接入，适合日常文本翻译'
+  },
+  {
+    value: 'large-model',
+    label: '大模型文本翻译 API',
+    freeLimit: 1_000_000,
+    unit: 'character',
+    implemented: true,
+    description: '使用 API Key 鉴权，端点和请求格式可由用户按控制台文档配置'
+  },
+  {
+    value: 'domain',
+    label: '领域文本翻译 API',
+    freeLimit: 500_000,
+    unit: 'character',
+    implemented: true,
+    description: '适合论文、医药、金融等垂直领域，需选择 domain'
+  },
+  {
+    value: 'image',
+    label: '图片翻译 API',
+    freeLimit: 1000,
+    unit: 'request',
+    implemented: true,
+    description: '图片 OCR + 翻译，独立页面调用并按请求次数计量'
+  }
+];
+
+export const FIELD_DOMAIN_OPTIONS: FieldDomainOption[] = [
+  { value: 'academic', label: '学术论文', directions: '中英互译' },
+  { value: 'medicine', label: '生物医药', directions: '中英互译' },
+  { value: 'finance', label: '金融财经', directions: '中英互译' },
+  { value: 'it', label: '信息技术', directions: '中英互译' },
+  { value: 'machinery', label: '机械制造', directions: '中英互译' },
+  { value: 'electronics', label: '电子科技', directions: '中译英' },
+  { value: 'mechanics', label: '水利机械', directions: '中译英' },
+  { value: 'novel', label: '网络文学', directions: '中译英' },
+  { value: 'news', label: '新闻资讯', directions: '中英互译' },
+  { value: 'wiki', label: '人文社科', directions: '中译英' },
+  { value: 'aerospace', label: '航空航天', directions: '中英互译' },
+  { value: 'law', label: '法律法规', directions: '中英互译' },
+  { value: 'contract', label: '合同', directions: '中英互译' }
+];
+
+export type LargeModelRequestMode = 'baidu-translate' | 'openai-compatible';
+export type LargeModelAuthMode = 'api-key' | 'sign';
+export type LargeModelModelType = 'llm' | 'nmt';
+
 // 百度翻译API配置
-interface BaiduTranslateConfig {
+export interface BaiduTranslateConfig {
   appId: string;
   secretKey: string;
+  domain?: string;
+  largeModelApiKey?: string;
+  largeModelEndpoint?: string;
+  largeModelModel?: string;
+  largeModelAuthMode?: LargeModelAuthMode;
+  largeModelModelType?: LargeModelModelType;
+  largeModelReference?: string;
+  largeModelNeedIntervene?: boolean;
+  largeModelTagHandling?: boolean;
+  largeModelIgnoreTags?: string;
+  largeModelRequestMode?: LargeModelRequestMode;
+  cacheEnabled?: boolean;
+  apiType?: TranslationApiType;
+  quotaBaseline?: number;
 }
 
 // 翻译请求参数
@@ -48,22 +134,121 @@ interface TranslateResponse {
   error_msg?: string;
 }
 
+interface FieldTranslateRequest extends TranslateRequest {
+  domain: string;
+}
+
+interface LargeModelTranslationResponse {
+  result?: {
+    from?: string;
+    to?: string;
+    trans_result?: Array<{ src?: string; dst?: string }>;
+    translated_text?: string;
+  };
+  trans_result?: Array<{ src?: string; dst?: string }>;
+  data?: {
+    result?: string;
+    translated_text?: string;
+    translation?: string;
+  };
+  choices?: Array<{
+    message?: { content?: string };
+    text?: string;
+  }>;
+  translated_text?: string;
+  translation?: string;
+  error_code?: string | number;
+  error_msg?: string;
+  message?: string;
+}
+
 // 翻译结果
 export interface TranslateResult {
   text: string;
   from: string;
   to: string;
   duration: number; // 翻译耗时（毫秒）
+  cached?: boolean; // 是否来自本地缓存
 }
 
 // 速率限制：上次请求时间
 let lastRequestTime = 0;
 
+const BAIDU_TRANSLATE_API_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
+const BAIDU_FIELD_TRANSLATE_API_URL = 'https://fanyi-api.baidu.com/api/trans/vip/fieldtranslate';
+const BAIDU_LARGE_MODEL_TRANSLATE_API_URL = 'https://fanyi-api.baidu.com/ait/api/aiTextTranslate';
+const CACHE_KEY = 'clipboard-translator-cache-v1';
+const QUOTA_KEY = 'clipboard-translator-quota-v1';
+const MAX_CACHE_ITEMS = 200;
+const JSONP_TIMEOUT = 5000;
+const QUOTA_STOP_RATIO = 0.95;
+
+interface CachedTranslation {
+  result: TranslateResult;
+  timestamp: number;
+  lastUsed: number;
+}
+
+interface TranslationCacheState {
+  entries: Record<string, CachedTranslation>;
+}
+
+export interface TranslationCacheStats {
+  count: number;
+  max: number;
+}
+
+export interface TranslationQuotaState {
+  apiType: TranslationApiType;
+  month: string;
+  used: number;
+  localUsed: number;
+  baseline: number;
+  freeLimit: number;
+  stopAt: number;
+  remainingBeforeStop: number;
+  unit: 'character' | 'request';
+  stopped: boolean;
+}
+
+interface QuotaUsageEntry {
+  month: string;
+  used: number;
+}
+
+interface QuotaUsageState {
+  entries: Record<string, QuotaUsageEntry>;
+}
+
 /**
  * 纯JS MD5实现（RFC 1321标准）
  * 避免引入第三方依赖
  */
-function md5(string: string): string {
+function toUtf8Binary(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  return bytesToBinary(bytes);
+}
+
+function bytesToBinary(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return binary;
+}
+
+export function md5(input: string): string {
+  return md5Binary(toUtf8Binary(input));
+}
+
+export async function md5File(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  return md5Binary(bytesToBinary(new Uint8Array(buffer)));
+}
+
+function md5Binary(input: string): string {
+  const string = input;
+
   function md5cycle(x: number[], k: number[]) {
     let a = x[0], b = x[1], c = x[2], d = x[3];
 
@@ -240,10 +425,259 @@ async function waitForRateLimit(): Promise<void> {
   lastRequestTime = Date.now();
 }
 
+function canUseLocalStorage(): boolean {
+  return typeof localStorage !== 'undefined';
+}
+
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getApiOption(apiType: TranslationApiType): TranslationApiOption {
+  return TRANSLATION_API_OPTIONS.find(option => option.value === apiType) || TRANSLATION_API_OPTIONS[0];
+}
+
+function loadQuotaUsage(): QuotaUsageState {
+  if (!canUseLocalStorage()) {
+    return { entries: {} };
+  }
+
+  const raw = localStorage.getItem(QUOTA_KEY);
+  if (!raw) {
+    return { entries: {} };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as QuotaUsageState;
+    return {
+      entries: parsed.entries || {}
+    };
+  } catch (error) {
+    console.error('加载翻译额度记录失败:', error);
+    return { entries: {} };
+  }
+}
+
+function saveQuotaUsage(quota: QuotaUsageState): void {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+
+  localStorage.setItem(QUOTA_KEY, JSON.stringify(quota));
+}
+
+function getQuotaKey(apiType: TranslationApiType, appId: string): string {
+  return `${appId || 'anonymous'}:${apiType}`;
+}
+
+function getQuotaState(
+  apiType: TranslationApiType,
+  appId: string,
+  baseline: number = 0
+): TranslationQuotaState {
+  const apiOption = getApiOption(apiType);
+  const month = getCurrentMonth();
+  const quota = loadQuotaUsage();
+  const key = getQuotaKey(apiType, appId);
+  const entry = quota.entries[key];
+  const localUsed = entry?.month === month ? entry.used : 0;
+  const normalizedBaseline = Math.max(0, Math.floor(Number(baseline) || 0));
+  const used = normalizedBaseline + localUsed;
+  const stopAt = Math.floor(apiOption.freeLimit * QUOTA_STOP_RATIO);
+  const remainingBeforeStop = Math.max(stopAt - used, 0);
+
+  return {
+    apiType,
+    month,
+    used,
+    localUsed,
+    baseline: normalizedBaseline,
+    freeLimit: apiOption.freeLimit,
+    stopAt,
+    remainingBeforeStop,
+    unit: apiOption.unit,
+    stopped: used >= stopAt
+  };
+}
+
+function getTranslationCost(apiType: TranslationApiType, text: string): number {
+  const apiOption = getApiOption(apiType);
+  return apiOption.unit === 'request' ? 1 : text.length;
+}
+
+export function assertWithinFreeQuota(
+  apiType: TranslationApiType,
+  appId: string,
+  text: string,
+  baseline: number = 0
+): void {
+  const quotaState = getQuotaState(apiType, appId, baseline);
+  const cost = getTranslationCost(apiType, text);
+
+  if (quotaState.stopped || quotaState.used + cost > quotaState.stopAt) {
+    throw new Error(
+      `已达到免费额度保护阈值：${quotaState.month} 已记录 ${quotaState.used}/${quotaState.freeLimit}，` +
+      `本工具会在 ${quotaState.stopAt}（95%）停止调用。请下月再使用或在设置中重置本地额度记录。`
+    );
+  }
+}
+
+export function recordQuotaUsage(apiType: TranslationApiType, appId: string, text: string): void {
+  const quota = loadQuotaUsage();
+  const key = getQuotaKey(apiType, appId);
+  const month = getCurrentMonth();
+  const cost = getTranslationCost(apiType, text);
+  const entry = quota.entries[key];
+
+  quota.entries[key] = {
+    month,
+    used: entry?.month === month ? entry.used + cost : cost
+  };
+
+  saveQuotaUsage(quota);
+}
+
+export function getTranslationQuotaState(
+  apiType: TranslationApiType = 'general',
+  appId: string = '',
+  baseline: number = 0
+): TranslationQuotaState {
+  return getQuotaState(apiType, appId, baseline);
+}
+
+export function resetTranslationQuotaUsage(
+  apiType: TranslationApiType = 'general',
+  appId: string = ''
+): void {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+
+  const quota = loadQuotaUsage();
+  delete quota.entries[getQuotaKey(apiType, appId)];
+  saveQuotaUsage(quota);
+}
+
+function loadCache(): TranslationCacheState {
+  if (!canUseLocalStorage()) {
+    return { entries: {} };
+  }
+
+  const raw = localStorage.getItem(CACHE_KEY);
+  if (!raw) {
+    return { entries: {} };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as TranslationCacheState;
+    return {
+      entries: parsed.entries || {}
+    };
+  } catch (error) {
+    console.error('加载翻译缓存失败:', error);
+    return { entries: {} };
+  }
+}
+
+function saveCache(cache: TranslationCacheState): void {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+
+  const entries = Object.entries(cache.entries)
+    .sort(([, a], [, b]) => b.lastUsed - a.lastUsed)
+    .slice(0, MAX_CACHE_ITEMS);
+
+  localStorage.setItem(
+    CACHE_KEY,
+    JSON.stringify({
+      entries: Object.fromEntries(entries)
+    })
+  );
+}
+
+function createCacheKey(
+  text: string,
+  from: LanguageCode,
+  to: LanguageCode,
+  appId: string,
+  apiType: TranslationApiType,
+  variant: string = ''
+): string {
+  return md5([appId, apiType, variant, from, to, text].join('\u0000'));
+}
+
+function getCachedTranslation(
+  text: string,
+  from: LanguageCode,
+  to: LanguageCode,
+  appId: string,
+  apiType: TranslationApiType,
+  variant: string = ''
+): TranslateResult | null {
+  const cache = loadCache();
+  const cacheKey = createCacheKey(text, from, to, appId, apiType, variant);
+  const cached = cache.entries[cacheKey];
+
+  if (!cached) {
+    return null;
+  }
+
+  cached.lastUsed = Date.now();
+  saveCache(cache);
+
+  return {
+    ...cached.result,
+    duration: 0,
+    cached: true
+  };
+}
+
+function saveCachedTranslation(
+  text: string,
+  from: LanguageCode,
+  to: LanguageCode,
+  appId: string,
+  apiType: TranslationApiType,
+  variant: string,
+  result: TranslateResult
+): void {
+  const cache = loadCache();
+  const cacheKey = createCacheKey(text, from, to, appId, apiType, variant);
+  const now = Date.now();
+
+  cache.entries[cacheKey] = {
+    result: {
+      ...result,
+      cached: false
+    },
+    timestamp: now,
+    lastUsed: now
+  };
+
+  saveCache(cache);
+}
+
+export function clearTranslationCache(): void {
+  if (canUseLocalStorage()) {
+    localStorage.removeItem(CACHE_KEY);
+  }
+}
+
+export function getTranslationCacheStats(): TranslationCacheStats {
+  const cache = loadCache();
+  return {
+    count: Object.keys(cache.entries).length,
+    max: MAX_CACHE_ITEMS
+  };
+}
+
 /**
  * 百度翻译API错误码映射
  */
 const ERROR_MESSAGES: Record<string, string> = {
+  '52000': '成功',
   '52001': '请求超时，请重试',
   '52002': '系统错误，请稍后重试',
   '52003': '未授权用户，请检查API Key',
@@ -251,16 +685,297 @@ const ERROR_MESSAGES: Record<string, string> = {
   '54001': '签名错误，请检查Secret Key',
   '54003': '访问频率受限，请稍后重试',
   '54004': '账户余额不足',
-  '54005': '长query请求频繁，请缩短文本长度'
+  '54005': '长query请求频繁，请缩短文本长度',
+  '58000': '客户端 IP 非法，请检查百度翻译开放平台安全设置',
+  '58001': '译文语言方向不支持，请调整源语言或目标语言',
+  '58002': '服务当前已关闭，请前往控制台开启服务',
+  '58004': '模型参数错误，请检查 model_type',
+  '59002': '翻译指令过长，reference 最多 500 字符',
+  '59003': '请求文本过长，q 最多 6000 字符',
+  '59004': 'QPS 超限，请降低调用频率',
+  '59005': 'tag_handling 参数非法',
+  '59006': '标签解析失败',
+  '59007': 'ignore_tags 长度超限',
+  '90107': '认证未通过或服务未开通，请检查百度翻译开放平台配置'
 };
 
-/**
- * 获取API端点（开发环境使用代理）
- */
-function getApiUrl(): string {
-  return import.meta.env.DEV
-    ? '/api/baidu-translate'
-    : 'https://fanyi-api.baidu.com/api/trans/vip/translate';
+function isErrorCode(code: string | number | undefined): boolean {
+  return code !== undefined && code !== '' && String(code) !== '0' && String(code) !== '52000';
+}
+
+function getTextApiUrl(apiType: TranslationApiType): string {
+  return apiType === 'domain' ? BAIDU_FIELD_TRANSLATE_API_URL : BAIDU_TRANSLATE_API_URL;
+}
+
+function translateWithJsonp(url: string, params: TranslateRequest | FieldTranslateRequest): Promise<TranslateResponse> {
+  return new Promise((resolve, reject) => {
+    const callbackName = `__ctpBaiduTranslate_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    const script = document.createElement('script');
+    const query = new URLSearchParams({
+      ...params,
+      callback: callbackName
+    } as any);
+    let settled = false;
+
+    const cleanup = () => {
+      delete (window as any)[callbackName];
+      script.remove();
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error('JSONP 请求超时，请检查网络连接'));
+    }, JSONP_TIMEOUT);
+
+    (window as any)[callbackName] = (data: TranslateResponse) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      cleanup();
+      resolve(data);
+    };
+
+    script.onerror = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      cleanup();
+      reject(new Error('静态页面请求百度翻译失败，请检查网络或百度接口是否允许 JSONP'));
+    };
+
+    script.src = `${url}?${query.toString()}`;
+    document.head.appendChild(script);
+  });
+}
+
+async function requestBaiduTranslation(
+  url: string,
+  params: TranslateRequest | FieldTranslateRequest
+): Promise<TranslateResponse> {
+  const body = new URLSearchParams(params as any);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body,
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP错误: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error: any) {
+    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      return translateWithJsonp(url, params);
+    }
+
+    throw error;
+  }
+}
+
+function requireBaiduClassicConfig(config: BaiduTranslateConfig): void {
+  if (!config.appId || !config.secretKey) {
+    throw new Error('请先在设置页面配置百度翻译 APP ID 和 Secret Key');
+  }
+}
+
+function getCredentialId(config: BaiduTranslateConfig, apiType: TranslationApiType): string {
+  if (apiType === 'large-model') {
+    return config.largeModelApiKey || config.appId || 'large-model';
+  }
+
+  return config.appId;
+}
+
+function getCacheVariant(config: BaiduTranslateConfig, apiType: TranslationApiType): string {
+  if (apiType === 'domain') {
+    return config.domain || '';
+  }
+
+  if (apiType === 'large-model') {
+    return [
+      config.largeModelEndpoint || BAIDU_LARGE_MODEL_TRANSLATE_API_URL,
+      config.largeModelAuthMode || 'api-key',
+      config.largeModelModelType || config.largeModelModel || 'llm',
+      config.largeModelReference || '',
+      config.largeModelNeedIntervene ? 'term' : '',
+      config.largeModelTagHandling ? 'tag' : '',
+      config.largeModelIgnoreTags || ''
+    ].join(':');
+  }
+
+  return '';
+}
+
+function createSignedTextParams(
+  text: string,
+  from: LanguageCode,
+  to: LanguageCode,
+  config: BaiduTranslateConfig
+): TranslateRequest {
+  const salt = generateSalt();
+  const sign = md5(config.appId + text + salt + config.secretKey);
+
+  return {
+    q: text,
+    from,
+    to,
+    appid: config.appId,
+    salt,
+    sign
+  };
+}
+
+function createSignedFieldParams(
+  text: string,
+  from: LanguageCode,
+  to: LanguageCode,
+  config: BaiduTranslateConfig
+): FieldTranslateRequest {
+  const domain = config.domain?.trim();
+
+  if (!domain) {
+    throw new Error('使用领域文本翻译 API 时，请先选择领域 domain');
+  }
+
+  const salt = generateSalt();
+  const sign = md5(config.appId + text + salt + domain + config.secretKey);
+
+  return {
+    q: text,
+    from,
+    to,
+    appid: config.appId,
+    salt,
+    domain,
+    sign
+  };
+}
+
+function getTextFromClassicResponse(data: TranslateResponse): string {
+  if (isErrorCode(data.error_code)) {
+    const errorMsg = ERROR_MESSAGES[data.error_code] || `未知错误: ${data.error_code}`;
+    throw new Error(errorMsg);
+  }
+
+  if (!data.trans_result || data.trans_result.length === 0) {
+    throw new Error('翻译结果为空');
+  }
+
+  return data.trans_result.map(item => item.dst).join('\n');
+}
+
+function getTextFromLargeModelResponse(data: LargeModelTranslationResponse): string {
+  if (isErrorCode(data.error_code)) {
+    const errorCode = String(data.error_code);
+    throw new Error(ERROR_MESSAGES[errorCode] || data.error_msg || data.message || `大模型文本翻译错误: ${data.error_code}`);
+  }
+
+  const candidates = [
+    data.result?.trans_result?.map(item => item.dst).filter(Boolean).join('\n'),
+    data.trans_result?.map(item => item.dst).filter(Boolean).join('\n'),
+    data.result?.translated_text,
+    data.data?.translated_text,
+    data.data?.translation,
+    data.data?.result,
+    data.translated_text,
+    data.translation,
+    data.choices?.[0]?.message?.content,
+    data.choices?.[0]?.text
+  ];
+
+  const text = candidates.find(candidate => typeof candidate === 'string' && candidate.trim());
+  if (!text) {
+    throw new Error('大模型文本翻译结果为空或返回格式无法识别，请检查端点和请求格式设置');
+  }
+
+  return text.trim();
+}
+
+async function translateWithLargeModel(
+  text: string,
+  from: LanguageCode,
+  to: LanguageCode,
+  config: BaiduTranslateConfig
+): Promise<{ text: string; from: string; to: string }> {
+  const apiKey = config.largeModelApiKey?.trim();
+  const endpoint = config.largeModelEndpoint?.trim() || BAIDU_LARGE_MODEL_TRANSLATE_API_URL;
+  const authMode = config.largeModelAuthMode || 'api-key';
+  const body: Record<string, unknown> = {
+    appid: config.appId,
+    q: text,
+    from,
+    to,
+    model_type: config.largeModelModelType || config.largeModelModel || 'llm'
+  };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+
+  if (!config.appId) {
+    throw new Error('大模型文本翻译仍需传入 APP ID，请在设置中填写百度 APP ID');
+  }
+
+  if (config.largeModelReference?.trim()) {
+    body.reference = config.largeModelReference.trim();
+  }
+
+  if (config.largeModelNeedIntervene) {
+    body.needIntervene = 1;
+  }
+
+  if (config.largeModelTagHandling) {
+    body.tag_handling = 1;
+  }
+
+  const ignoreTags = (config.largeModelIgnoreTags || '')
+    .split(',')
+    .map(tag => tag.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+
+  if (ignoreTags.length > 0) {
+    body.ignore_tags = ignoreTags;
+  }
+
+  if (authMode === 'api-key') {
+    if (!apiKey) {
+      throw new Error('使用大模型文本翻译 API 时，请填写 API Key 管理页面中的 API Key');
+    }
+    headers.Authorization = `Bearer ${apiKey}`;
+  } else {
+    requireBaiduClassicConfig(config);
+    const salt = generateSalt();
+    body.salt = salt;
+    body.sign = md5(config.appId + text + salt + config.secretKey);
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000)
+  });
+
+  if (!response.ok) {
+    throw new Error(`大模型文本翻译 HTTP 错误: ${response.status}`);
+  }
+
+  const data = await response.json() as LargeModelTranslationResponse;
+  return {
+    text: getTextFromLargeModelResponse(data),
+    from,
+    to
+  };
 }
 
 /**
@@ -273,85 +988,83 @@ export async function translate(
   config: BaiduTranslateConfig
 ): Promise<TranslateResult> {
   const startTime = Date.now();
-
-  // 验证配置
-  if (!config.appId || !config.secretKey) {
-    throw new Error('请先在设置页面配置百度翻译API Key');
-  }
+  const queryText = text.trim();
+  const apiType = config.apiType || 'general';
+  const credentialId = getCredentialId(config, apiType);
+  const cacheVariant = getCacheVariant(config, apiType);
 
   // 验证文本
-  if (!text.trim()) {
+  if (!queryText) {
     throw new Error('请输入要翻译的文本');
   }
+
+  if (to === 'auto') {
+    throw new Error('目标语言不能设置为检测语言');
+  }
+
+  if (config.cacheEnabled !== false) {
+    const cachedResult = getCachedTranslation(
+      queryText,
+      from,
+      to,
+      credentialId,
+      apiType,
+      cacheVariant
+    );
+    if (cachedResult) {
+      return cachedResult;
+    }
+  }
+
+  assertWithinFreeQuota(apiType, credentialId, queryText, config.quotaBaseline);
 
   // 速率限制
   await waitForRateLimit();
 
-  // 生成签名参数
-  const salt = generateSalt();
-  const signStr = config.appId + text + salt + config.secretKey;
-  const sign = md5(signStr);
-
-  // 构建请求参数
-  const params: TranslateRequest = {
-    q: text,
-    from,
-    to,
-    appid: config.appId,
-    salt,
-    sign
-  };
-
   // 发起请求
   try {
-    const url = getApiUrl();
-    const queryString = new URLSearchParams(params as any).toString();
+    let translatedText = '';
+    let resultFrom = from;
+    let resultTo = to;
 
-    const response = await fetch(`${url}?${queryString}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      signal: AbortSignal.timeout(5000) // 5秒超时
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP错误: ${response.status}`);
+    if (apiType === 'large-model') {
+      const largeModelResult = await translateWithLargeModel(queryText, from, to, config);
+      translatedText = largeModelResult.text;
+      resultFrom = largeModelResult.from as LanguageCode;
+      resultTo = largeModelResult.to as LanguageCode;
+    } else {
+      requireBaiduClassicConfig(config);
+      const params = apiType === 'domain'
+        ? createSignedFieldParams(queryText, from, to, config)
+        : createSignedTextParams(queryText, from, to, config);
+      const data = await requestBaiduTranslation(getTextApiUrl(apiType), params);
+      translatedText = getTextFromClassicResponse(data);
+      resultFrom = data.from as LanguageCode;
+      resultTo = data.to as LanguageCode;
     }
 
-    const data: TranslateResponse = await response.json();
-
-    // 检查API错误
-    if (data.error_code) {
-      const errorMsg = ERROR_MESSAGES[data.error_code] || `未知错误: ${data.error_code}`;
-      throw new Error(errorMsg);
-    }
-
-    // 检查翻译结果
-    if (!data.trans_result || data.trans_result.length === 0) {
-      throw new Error('翻译结果为空');
-    }
-
-    // 拼接翻译结果
-    const translatedText = data.trans_result.map(item => item.dst).join('\n');
     const duration = Date.now() - startTime;
 
-    return {
+    const result: TranslateResult = {
       text: translatedText,
-      from: data.from,
-      to: data.to,
-      duration
+      from: resultFrom,
+      to: resultTo,
+      duration,
+      cached: false
     };
+
+    if (config.cacheEnabled !== false) {
+      saveCachedTranslation(queryText, from, to, credentialId, apiType, cacheVariant, result);
+    }
+
+    recordQuotaUsage(apiType, credentialId, queryText);
+
+    return result;
   } catch (error: any) {
     // 处理特定错误类型
     if (error.name === 'TimeoutError' || error.name === 'AbortError') {
       throw new Error('请求超时，请检查网络连接');
     }
-
-    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-      throw new Error('跨域请求被阻止，请确认开发服务器代理已配置');
-    }
-
     throw error;
   }
 }

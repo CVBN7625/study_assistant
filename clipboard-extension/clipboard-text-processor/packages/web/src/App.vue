@@ -1,35 +1,37 @@
 <template>
   <n-config-provider :theme-overrides="themeOverrides">
-    <n-layout has-sider style="height: 100vh">
-      <!-- 左侧边栏 -->
-      <n-layout-sider
-        bordered
-        content-style="padding: 20px 16px;"
-        :native-scrollbar="false"
-        width="240px"
-        :style="{ background: '#f5f0e8' }"
-      >
-        <div class="logo">
-          <h2>📋 Clipboard Text Processor</h2>
-          <p class="subtitle">智能文本处理器</p>
-        </div>
+    <n-message-provider>
+      <n-layout has-sider style="height: 100vh">
+        <!-- 左侧边栏 -->
+        <n-layout-sider
+          bordered
+          content-style="padding: 20px 16px;"
+          :native-scrollbar="false"
+          width="240px"
+          :style="{ background: '#f5f0e8' }"
+        >
+          <div class="logo">
+            <h2>📋 Clipboard Text Processor</h2>
+            <p class="subtitle">智能文本处理器</p>
+          </div>
 
-        <n-menu
-          v-model:value="currentRoute"
-          :options="menuOptions"
-          @update:value="handleMenuClick"
-          :indent="24"
-        />
-      </n-layout-sider>
+          <n-menu
+            v-model:value="currentRoute"
+            :options="menuOptions"
+            @update:value="handleMenuClick"
+            :indent="24"
+          />
+        </n-layout-sider>
 
-      <!-- 主内容区 -->
-      <n-layout-content
-        content-style="padding: 24px;"
-        :style="{ background: '#faf8f5' }"
-      >
-        <router-view />
-      </n-layout-content>
-    </n-layout>
+        <!-- 主内容区 -->
+        <n-layout-content
+          content-style="padding: 24px;"
+          :style="{ background: '#faf8f5' }"
+        >
+          <router-view />
+        </n-layout-content>
+      </n-layout>
+    </n-message-provider>
   </n-config-provider>
 </template>
 
@@ -41,6 +43,7 @@ import {
   NLayout,
   NLayoutSider,
   NLayoutContent,
+  NMessageProvider,
   NMenu,
   NIcon,
   type GlobalThemeOverrides
@@ -121,6 +124,11 @@ const menuOptions = [
     label: '翻译',
     key: '/translator',
     icon: () => h(NIcon, null, { default: () => '🌐' }),
+  },
+  {
+    label: '图片翻译',
+    key: '/image-translator',
+    icon: () => h(NIcon, null, { default: () => '🖼️' }),
   },
   {
     label: '设置',
